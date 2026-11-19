@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1b2035">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="血壓">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<title>血壓記錄</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#1b2035;--surface:#262d48;--surface2:#303860;--line:rgba(255,255,255,.07);
+  --text:#f3f5fb;--sub:#98a1c2;--accent:#5b8cff;--accent-press:#4a78e8;
+  --r-lg:22px;--r-md:16px;--r-sm:12px;
+  --safe-t:env(safe-area-inset-top);--safe-b:env(safe-area-inset-bottom);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{overscroll-behavior-y:contain;touch-action:manipulation;background:var(--bg)}
+body{margin:0 auto;max-width:520px;min-height:100vh;color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang TC","Noto Sans TC",system-ui,sans-serif;
+  font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;
+  padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;padding:0}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ic{flex:none;display:block}
+
+/* screens */
+.screen{display:none;padding:calc(10px + var(--safe-t)) 16px calc(120px + var(--safe-b))}
+.screen.active{display:block;animation:in .24s cubic-bezier(.2,.8,.2,1)}
+@keyframes in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.screen.active{animation:none}*{transition:none!important}}
+
+/* header */
+.top{display:flex;align-items:center;gap:10px;min-height:56px}
+.top h1{margin:0;flex:1;font-size:30px;font-weight:800;letter-spacing:-.4px}
+.top.sub h1{font-size:22px;font-weight:700;letter-spacing:0}
+.icon-btn{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--surface);border:1px solid var(--line);color:var(--text);transition:transform .12s,background .15s}
+.icon-btn:active{transform:scale(.92);background:var(--surface2)}
+.icon-btn.sm{width:36px;height:36px;background:transparent;border-color:transparent;color:var(--sub)}
+.pill-btn{background:var(--accent);color:#fff;height:40px;padding:0 20px;border-radius:20px;font-weight:700;font-size:16px;transition:transform .12s,background .15s}
+.pill-btn:active{transform:scale(.95);background:var(--accent-press)}
+
+/* sync status */
+.sync{display:inline-flex;align-items:center;gap:6px;color:var(--sub);font-size:13px;min-height:22px;cursor:pointer;margin:0 2px 10px}
+
+/* hero */
+.hero{border-radius:var(--r-lg);padding:20px;border:1px solid var(--line);background:var(--surface)}
+.h-top{display:flex;justify-content:space-between;color:var(--sub);font-size:14px}
+.h-main{display:flex;flex-direction:column;align-items:flex-start;gap:14px;margin-top:10px}
+.h-num{font-size:58px;font-weight:800;line-height:1;letter-spacing:-1.5px}
+.h-num i{font-style:normal;color:var(--sub);font-weight:300;margin:0 4px}
+.h-num small{font-size:14px;color:var(--sub);font-weight:500;letter-spacing:0;margin-left:8px}
+.h-side{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
+.pill{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 12px;border-radius:15px;font-size:14px;font-weight:700;background:color-mix(in srgb,var(--c) 18%,transparent);color:#fff;white-space:nowrap}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--c,#16b96e);display:inline-block;flex:none}
+.pulse{display:inline-flex;align-items:center;gap:6px;color:var(--sub);font-size:14px}
+.empty{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;color:var(--sub);padding:18px 0 8px}
+.empty b{color:var(--text);font-size:18px}.empty span{font-size:14px}
+
+/* period control */
+.ctl{display:flex;align-items:center;justify-content:space-between;margin:20px 0 12px;gap:8px}
+.seg{display:flex;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:3px}
+.seg button{height:32px;padding:0 20px;border-radius:9px;font-size:15px;font-weight:600;color:var(--sub);transition:background .18s,color .18s}
+.seg button.on{background:var(--surface2);color:#fff;box-shadow:0 1px 3px #0004}
+.nav{display:flex;align-items:center;gap:2px;color:var(--sub);font-size:14px;font-weight:600}
+.nav button{width:36px;height:36px;display:grid;place-items:center;color:var(--text);border-radius:50%}
+.nav button:active{background:var(--surface)}.nav button:disabled{opacity:.25;pointer-events:none}
+
+/* stats + chart */
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:14px 16px}
+.tile h3{margin:0 0 8px;font-size:14px;font-weight:600;color:var(--sub)}
+.tile .r{display:flex;gap:18px}.tile small{display:block;color:var(--sub);font-size:12px;margin-bottom:2px}
+.tile b{font-size:28px;font-weight:800;letter-spacing:-.5px}
+.chart-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:12px 8px 4px;margin-top:12px}
+#chart{display:block;width:100%;height:auto}
+
+/* list */
+.sec{margin:26px 4px 4px;font-size:18px;font-weight:700;display:flex;justify-content:space-between;align-items:baseline}
+.sec span{font-size:13px;font-weight:500;color:var(--sub)}
+.rec{display:flex;align-items:flex-start;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:14px 10px 14px 16px;margin-top:10px;position:relative;overflow:hidden}
+.rec::before{content:"";position:absolute;left:0;top:14px;bottom:14px;width:3px;border-radius:0 3px 3px 0;background:var(--c)}
+.r-l{flex:1;min-width:0}
+.r-val{font-size:30px;font-weight:800;letter-spacing:-.6px;line-height:1.1}
+.r-val i{font-style:normal;color:var(--sub);font-weight:300;margin:0 3px}
+.r-meta{display:flex;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap}
+.r-t{color:var(--sub);font-size:13px;margin-top:8px}
+.note{color:var(--text);opacity:.8;font-size:14px;margin-top:6px;line-height:1.4;word-break:break-word}
+.more{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin-top:14px;padding:12px;color:var(--sub);font-size:14px;font-weight:600;border-radius:var(--r-sm)}
+.more:active{background:var(--surface)}
+
+/* FAB */
+.fab{position:fixed;left:50%;bottom:calc(18px + var(--safe-b));transform:translateX(-50%);display:flex;align-items:center;justify-content:center;gap:8px;
+  height:56px;padding:0 30px;border-radius:28px;background:var(--accent);color:#fff;font-size:18px;font-weight:700;
+  box-shadow:0 10px 28px rgba(60,100,255,.35),0 2px 6px #0005;transition:transform .12s,background .15s;z-index:5}
+.fab:active{transform:translateX(-50%) scale(.95);background:var(--accent-press)}
+
+/* banner */
+.banner{display:none;align-items:center;gap:10px;margin-bottom:12px;padding:10px 10px 10px 14px;border-radius:var(--r-md);background:color-mix(in srgb,#fbae04 16%,var(--surface));border:1px solid color-mix(in srgb,#fbae04 40%,transparent);font-weight:600;font-size:15px}
+.banner span{flex:1;display:flex;align-items:center;gap:8px}
+.banner .go{background:#fbae04;color:#201a00;height:32px;padding:0 14px;border-radius:16px;font-weight:700;font-size:14px}
+
+/* new record */
+.labels,.wheels{display:flex}
+.labels div{flex:1;text-align:center;font-size:15px;font-weight:600;color:var(--sub);padding:14px 0 4px}
+.wheels{position:relative;height:280px;margin-top:4px}
+.wheels::before{content:"";position:absolute;left:0;right:0;top:112px;height:56px;border-radius:28px;background:#16b96e;opacity:.95;transition:background .25s}
+.wheel{flex:1;height:280px;overflow-y:scroll;scroll-snap-type:y mandatory;scrollbar-width:none;position:relative;padding:112px 0;-webkit-mask-image:linear-gradient(transparent,#000 28%,#000 72%,transparent);mask-image:linear-gradient(transparent,#000 28%,#000 72%,transparent)}
+.wheel::-webkit-scrollbar{display:none}
+.wheel div{height:56px;line-height:56px;text-align:center;font-size:30px;font-weight:700;scroll-snap-align:center;color:#ffffff33}
+.wheel div.on{color:#fff;font-size:42px;font-weight:800}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:20px;margin-top:16px}
+.card h2{margin:0 0 14px;font-size:18px;font-weight:700;display:flex;align-items:center;gap:10px}
+.card h2 .ic{color:var(--sub)}
+.card h2 span{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:500;color:var(--sub)}
+.status{text-align:center}
+.status .n{font-size:28px;font-weight:800;display:flex;justify-content:center;align-items:center;gap:12px}
+.status .n .dot{width:14px;height:14px}
+.status .d{color:var(--sub);font-size:15px;margin:10px 0 4px;line-height:1.5}
+.bar{display:flex;gap:6px;margin-top:14px}.bar i{flex:1;height:8px;border-radius:4px;opacity:.35;transition:opacity .2s,transform .2s}.bar i.cur{opacity:1;transform:scaleY(1.6)}
+input[type=datetime-local],input[type=time],input[type=text],input[type=password],textarea{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:var(--r-sm);padding:14px;font:inherit;font-size:17px;color-scheme:dark;appearance:none;-webkit-appearance:none}
+textarea{margin-top:12px;height:76px;font-size:16px;resize:none}
+input::placeholder,textarea::placeholder{color:#6e7799}
+
+/* settings */
+.sw{display:flex;align-items:center;justify-content:space-between;font-size:17px;padding:12px 0;border-top:1px solid var(--line)}
+.sw:first-of-type{border-top:0}
+.sw input{appearance:none;-webkit-appearance:none;width:51px;height:31px;border-radius:16px;background:#3b4468;position:relative;transition:background .2s;flex:none;cursor:pointer}
+.sw input::after{content:"";position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 2px 4px #0005;transition:transform .2s}
+.sw input:checked{background:#16b96e}.sw input:checked::after{transform:translateX(20px)}
+.tm{display:flex;gap:6px;align-items:center;margin:8px 0}.tm input{flex:1}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;height:48px;margin-top:12px;border-radius:var(--r-sm);border:1px solid rgba(255,255,255,.14);font-size:16px;font-weight:600;transition:background .15s,transform .12s}
+.btn:active{background:var(--surface2);transform:scale(.98)}
+.btn.primary{background:var(--accent);border-color:transparent;color:#fff}
+.btn.primary:active{background:var(--accent-press)}
+.card small{color:var(--sub);display:block;line-height:1.55;margin-top:10px;font-size:13px}
+.card hr{border:0;border-top:1px solid var(--line);margin:18px 0}
+.card .sub-t{font-size:16px;font-weight:700;margin-bottom:4px}
+.card .lbl{color:var(--sub);font-size:13px;margin:14px 0 8px}
+.prev{margin-top:12px;font-size:14px;line-height:1.6}
+.prev table{width:100%;border-collapse:collapse;margin:6px 0;color:var(--sub)}.prev td{padding:4px 2px}
+.prev .pill-btn{width:100%;height:46px;margin-top:10px;border-radius:12px}
+.toast{position:fixed;left:50%;bottom:calc(92px + var(--safe-b));transform:translateX(-50%);background:rgba(10,12,24,.86);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);color:#fff;border:1px solid var(--line);padding:11px 18px;border-radius:22px;font-size:14px;font-weight:600;display:none;z-index:9;max-width:90%;text-align:center}
+</style>
+</head>
+<body>
+<!-- 主畫面 -->
+<section id="home" class="screen active">
+  <header class="top"><h1>血壓</h1><button class="icon-btn" onclick="go('settings')" aria-label="設定"><i data-ic="settings"></i></button></header>
+  <div class="sync" id="sync"></div>
+  <div class="banner" id="banner"><span><i data-ic="bell" data-s="20"></i>該量血壓了</span><button class="go" onclick="go('new')">立即記錄</button><button class="icon-btn sm" aria-label="關閉" onclick="$('banner').style.display='none'"><i data-ic="x" data-s="18"></i></button></div>
+  <div class="hero" id="hero"></div>
+  <div class="ctl">
+    <div class="seg"><button id="vWeek" class="on" onclick="setView('week')">週</button><button id="vMonth" onclick="setView('month')">月</button></div>
+    <div class="nav"><button onclick="shift(1)" aria-label="較早"><i data-ic="chevron-left" data-s="20"></i></button><span id="range"></span><button id="nxt" onclick="shift(-1)" aria-label="較近"><i data-ic="chevron-right" data-s="20"></i></button></div>
+  </div>
+  <div class="stats">
+    <div class="tile"><h3>收縮壓</h3><div class="r"><span><small>最小</small><b id="sMin">--</b></span><span><small>最大</small><b id="sMax">--</b></span></div></div>
+    <div class="tile"><h3>舒張壓</h3><div class="r"><span><small>最小</small><b id="dMin">--</b></span><span><small>最大</small><b id="dMax">--</b></span></div></div>
+  </div>
+  <div class="chart-card"><svg id="chart" viewBox="0 0 520 330" role="img" aria-label="血壓趨勢圖"></svg></div>
+  <div id="list"></div>
+  <button class="fab" onclick="go('new')"><i data-ic="plus" data-s="22"></i>新增記錄</button>
+</section>
+
+<!-- 新記錄 -->
+<section id="new" class="screen">
+  <header class="top sub"><button class="icon-btn" onclick="go('home')" aria-label="返回"><i data-ic="arrow-left"></i></button><h1>新記錄</h1><button class="pill-btn" onclick="save()">保存</button></header>
+  <div class="labels"><div>收縮壓</div><div>舒張壓</div><div>脈搏</div></div>
+  <div class="wheels"><div class="wheel" id="wSys"></div><div class="wheel" id="wDia"></div><div class="wheel" id="wPul"></div></div>
+  <div class="card status">
+    <div class="n"><span class="dot" id="stDot"></span><span id="stName"></span></div>
+    <div class="d" id="stDesc"></div>
+    <div class="bar" id="stBar"></div>
+  </div>
+  <div class="card">
+    <h2><i data-ic="calendar" data-s="20"></i>日期及時間<span><i data-ic="pencil" data-s="16"></i>備註</span></h2>
+    <input type="datetime-local" id="dt">
+    <textarea id="note" placeholder="備註（選填）"></textarea>
+  </div>
+</section>
+
+<!-- 設定 -->
+<section id="settings" class="screen">
+  <header class="top sub"><button class="icon-btn" onclick="go('home')" aria-label="返回"><i data-ic="arrow-left"></i></button><h1>設定</h1><button class="pill-btn" onclick="saveSettings()">保存</button></header>
+  <div class="card">
+    <h2><i data-ic="bell" data-s="20"></i>提醒量血壓</h2>
+    <label class="sw"><span>啟用提醒</span><input type="checkbox" id="rmOn"></label>
+    <div id="rmTimes"></div>
+    <button class="btn" onclick="addTime()"><i data-ic="plus" data-s="20"></i>新增時段</button>
+    <label class="sw" style="margin-top:12px"><span>Email 提醒</span><input type="checkbox" id="rmMail"></label>
+    <label class="sw"><span>開啟 App 時提示</span><input type="checkbox" id="rmApp"></label>
+    <small>Email 由 Google 帳號信箱寄出，實際時間約有 ±15 分鐘誤差；若 2 小時內已記錄則不寄。要在手機上跳出通知，請下載行事曆提醒，用手機的行事曆開啟。</small>
+    <button class="btn" onclick="downloadIcs()"><i data-ic="calendar" data-s="20"></i>下載行事曆提醒 (.ics)</button>
+  </div>
+  <div class="card">
+    <h2><i data-ic="database" data-s="20"></i>資料</h2>
+    <button class="btn" style="margin-top:0" onclick="exportCsv()"><i data-ic="download" data-s="20"></i>匯出 CSV</button>
+    <hr>
+    <div class="sub-t">匯入血壓歷史記錄</div>
+    <button class="btn" onclick="$('file').click()"><i data-ic="upload" data-s="20"></i>選擇檔案（xlsx / xls / csv）</button>
+    <input type="file" id="file" accept=".xlsx,.xls,.csv,.txt" style="display:none" onchange="handleFile(event)">
+    <div class="lbl">或讀取 Google 試算表</div>
+    <input type="text" id="gsUrl" placeholder="試算表網址或 ID">
+    <input type="text" id="gsTab" placeholder="工作表名稱（選填，預設第一個）" style="margin-top:8px">
+    <button class="btn" onclick="readGs()"><i data-ic="table" data-s="20"></i>讀取</button>
+    <small>自動辨識欄位：日期、時間、收縮壓（高壓）、舒張壓（低壓）、脈搏（心率）、備註；也支援「120/80」單欄格式。時間與收縮壓、舒張壓都相同的記錄會視為重複並略過。</small>
+    <div class="prev" id="prev"></div>
+  </div>
+  <div class="card">
+    <h2><i data-ic="cloud" data-s="20"></i>雲端同步</h2>
+    <small id="cfgNote" style="margin:0 0 12px"></small>
+    <input type="text" id="cfgUrl" placeholder="GAS 網頁應用程式網址（結尾是 /exec）" autocapitalize="off" autocomplete="off">
+    <input type="password" id="cfgTok" placeholder="API 密碼（與 Code.gs 的 API_TOKEN 相同）" style="margin-top:8px" autocomplete="off">
+    <button class="btn primary" onclick="saveCfg()"><i data-ic="refresh-cw" data-s="20"></i>測試並儲存</button>
+    <button class="btn" id="cfgOff" onclick="clearCfg()"><i data-ic="cloud-off" data-s="20"></i>改回僅本機模式</button>
+  </div>
+  <div class="card">
+    <h2><i data-ic="smartphone" data-s="20"></i>安裝到主畫面</h2>
+    <button class="btn primary" id="btnInstall" style="display:none;margin-top:0" onclick="doInstall()"><i data-ic="download" data-s="20"></i>安裝</button>
+    <small id="instNote" style="margin-top:0"></small>
+  </div>
+</section>
+<div class="toast" id="toast"></div>
+
+
+<script>
+const LEVELS=[
+ {n:'低血壓',c:'#4b7bff',d:'收縮壓 < 90 或舒張壓 < 60（榮總分級未列，僅供參考）'},
+ {n:'正常',c:'#16b96e',d:'收縮壓 < 120 且舒張壓 < 80'},
+ {n:'偏高',c:'#fcd53a',d:'高血壓前期：收縮壓 120 – 129 且舒張壓 < 80'},
+ {n:'高血壓，第 1 期',c:'#fbae04',d:'收縮壓 130 – 139 或舒張壓 80 – 89'},
+ {n:'高血壓，第 2 期',c:'#ef4444',d:'收縮壓 ≥ 140 或舒張壓 ≥ 90'}];
+// 台中榮總（台灣高血壓指引）成人分級
+function level(s,d){
+  if(s>=140||d>=90)return 4; if(s>=130||d>=80)return 3;
+  if(s<90||d<60)return 0; if(s>=120)return 2; return 1;
+}
+const $=id=>document.getElementById(id);
+const p2=n=>String(n).padStart(2,'0');
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+/* ---- 圖示：Lucide 風格極簡線條（stroke-width 1.8、圓角端點） ---- */
+const IC={
+ 'settings':'<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+ 'arrow-left':'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+ 'chevron-left':'<path d="m15 18-6-6 6-6"/>',
+ 'chevron-right':'<path d="m9 18 6-6-6-6"/>',
+ 'chevron-down':'<path d="m6 9 6 6 6-6"/>',
+ 'x':'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+ 'plus':'<path d="M5 12h14"/><path d="M12 5v14"/>',
+ 'bell':'<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+ 'smartphone':'<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>',
+ 'cloud':'<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>',
+ 'cloud-check':'<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/><path d="m9.5 13 2 2 3.5-3.5"/>',
+ 'cloud-off':'<path d="m2 2 20 20"/><path d="M5.782 5.782A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.307-.193"/><path d="M21.532 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7.008 7.008 0 0 0 10 5.07"/>',
+ 'wifi-off':'<path d="M12 20h.01"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/><path d="M5 12.859a10 10 0 0 1 5.17-2.69"/><path d="M19 12.859a10 10 0 0 0-2.007-1.523"/><path d="M2 8.82a15 15 0 0 1 4.177-2.643"/><path d="M22 8.82a15 15 0 0 0-11.288-3.764"/><path d="m2 2 20 20"/>',
+ 'triangle-alert':'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+ 'clock':'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+ 'refresh-cw':'<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
+ 'pencil':'<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
+ 'download':'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+ 'upload':'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>',
+ 'calendar':'<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/>',
+ 'trash-2':'<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/>',
+ 'database':'<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/>',
+ 'table':'<path d="M12 3v18"/><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/>',
+ 'heart-pulse':'<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/><path d="M3.22 12H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27"/>'
+};
+function ic(n,s){s=s||22;return `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[n]||''}</svg>`;}
+function hydrateIcons(){document.querySelectorAll('i[data-ic]').forEach(e=>{e.outerHTML=ic(e.dataset.ic,+e.dataset.s||22);});}
+
+let records=[],settings=null,view='week',offset=0,listLimit=30,imp=null;
+const TZ=(Intl.DateTimeFormat().resolvedOptions().timeZone)||'Asia/Taipei';
+
+function toast(m){const t=$('toast');t.textContent=m;t.style.display='block';clearTimeout(toast._t);toast._t=setTimeout(()=>t.style.display='none',3200);}
+
+/* ---- 資料層：離線優先。記錄先存在手機，設定雲端後自動同步到 Google 試算表 ---- */
+const LS=(k,d)=>{try{const v=JSON.parse(localStorage.getItem(k));return v==null?d:v;}catch(e){return d;}};
+const SV=(k,v)=>localStorage.setItem(k,JSON.stringify(v));
+const CFG=()=>LS('bpCfg',{});
+const uid=()=>(typeof crypto!=='undefined'&&crypto.randomUUID)?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2,10);
+const sortR=l=>l.sort((a,b)=>a.ts-b.ts);
+const DEF_SET=()=>({enabled:false,times:['08:00','20:00'],email:true,inapp:true,tz:TZ});
+let syncing=false,syncErr='',sentKeys=new Set();
+
+function applyOps(list,ops){
+  let l=list.slice();
+  ops.forEach(o=>{
+    if(o.op==='add'){if(!l.some(x=>x.id===o.rec.id))l.push(o.rec);}
+    else if(o.op==='del')l=l.filter(x=>x.id!==o.id);});
+  return l;
+}
+async function remote(action,...args){
+  const c=CFG();let res;
+  try{res=await fetch(c.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({token:c.token,action,args}),redirect:'follow'});}
+  catch(e){throw new Error('無法連線（請確認網址正確，且部署時「誰可以存取」選「任何人」）');}
+  let j;try{j=await res.json();}catch(e){throw new Error('伺服器回應格式錯誤（網址是否以 /exec 結尾？）');}
+  if(!j.ok)throw new Error(j.error||'伺服器錯誤');
+  return j.data;
+}
+function setStatus(){
+  const e=$('sync');if(!e)return;
+  const c=CFG(),n=LS('bpQ',[]).length;let i,t;
+  if(!c.url){i='smartphone';t='僅存在這支手機 · 點此設定雲端同步';}
+  else if(syncing){i='refresh-cw';t='同步中…';}
+  else if(!navigator.onLine){i='wifi-off';t='離線'+(n?`，${n} 筆待同步`:'');}
+  else if(syncErr){i='triangle-alert';t='同步失敗'+(n?`（${n} 筆待同步）`:'')+' · 點此重試';}
+  else if(n){i='clock';t=`${n} 筆待同步`;}
+  else{i='cloud-check';t='已同步';}
+  e.innerHTML=ic(i,16)+'<span>'+t+'</span>';
+}
+async function sync(){
+  const c=CFG();if(!c.url||syncing||!navigator.onLine)return;
+  syncing=true;syncErr='';setStatus();
+  try{
+    const q=LS('bpQ',[]);
+    sentKeys=new Set(q.map(o=>o.k));
+    const data=await remote('sync',q);
+    const rest=LS('bpQ',[]).filter(o=>!sentKeys.has(o.k));
+    SV('bpQ',rest);
+    const list=sortR(applyOps(data,rest));
+    SV('bp',list);records=list;
+    if($('home').classList.contains('active')){render();checkBanner();}
+  }catch(e){syncErr=e.message||String(e);}
+  sentKeys=new Set();syncing=false;setStatus();
+  if(!syncErr&&LS('bpQ',[]).length)setTimeout(sync,0);
+}
+function localImport(list){
+  const cur=LS('bp',[]),seen=new Set(cur.map(x=>x.ts+'|'+x.sys+'|'+x.dia));let added=0,skipped=0;
+  list.forEach(x=>{const k=x.ts+'|'+x.sys+'|'+x.dia;if(seen.has(k)){skipped++;return;}seen.add(k);cur.push({id:uid(),...x});added++;});
+  sortR(cur);SV('bp',cur);return {added,skipped,records:cur};
+}
+async function api(fn,...a){
+  const c=CFG();
+  switch(fn){
+    case 'getRecords':sync();return LS('bp',[]);
+    case 'addRecord':{
+      const rec={id:uid(),...a[0]},l=sortR([...LS('bp',[]),rec]);SV('bp',l);
+      if(c.url){const q=LS('bpQ',[]);q.push({op:'add',rec,k:uid()});SV('bpQ',q);sync();}
+      setStatus();return l;}
+    case 'deleteRecord':{
+      const id=a[0],l=LS('bp',[]).filter(x=>x.id!==id);SV('bp',l);
+      if(c.url){let q=LS('bpQ',[]);
+        const pend=q.find(o=>o.op==='add'&&o.rec.id===id);
+        if(pend&&!sentKeys.has(pend.k))q=q.filter(o=>o!==pend&&!(o.op==='add'&&o.rec.id===id));
+        else q.push({op:'del',id,k:uid()});
+        SV('bpQ',q);sync();}
+      setStatus();return l;}
+    case 'importRecords':{
+      if(!c.url)return localImport(a[0]);
+      const r=await remote('importRecords',a[0]);
+      const list=sortR(applyOps(r.records,LS('bpQ',[])));SV('bp',list);
+      return {added:r.added,skipped:r.skipped,records:list};}
+    case 'readSheetRows':
+      if(!c.url)throw new Error('讀取 Google 試算表需要先設定雲端同步');
+      return remote('readSheetRows',...a);
+    case 'getSettings':
+      if(c.url)remote('getSettings').then(s=>{SV('bpSet',s);settings=s;}).catch(()=>{});
+      return LS('bpSet',null)||DEF_SET();
+    case 'saveSettings':{
+      let s=a[0];
+      if(c.url)s=await remote('saveSettings',s);
+      SV('bpSet',s);return s;}
+  }
+  throw new Error('未知的動作：'+fn);
+}
+
+/* ---- 導覽 ---- */
+function go(s){document.querySelectorAll('.screen').forEach(e=>e.classList.remove('active'));$(s).classList.add('active');
+  if(s==='new')initNew();else if(s==='settings')fillSettings();else{render();checkBanner();}window.scrollTo(0,0);}
+function fmt(ts){const d=new Date(ts);return `${d.getMonth()+1}月${d.getDate()}日,${d.getHours()}:${p2(d.getMinutes())}`;}
+const md=d=>`${p2(d.getMonth()+1)}/${p2(d.getDate())}`;
+const dayKey=d=>`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+
+/* ---- 主畫面 ---- */
+const N=()=>view==='week'?7:30;
+function setView(v){view=v;offset=0;$('vWeek').classList.toggle('on',v==='week');$('vMonth').classList.toggle('on',v==='month');render();}
+function shift(d){offset=Math.max(0,offset+d);render();}
+function periodRange(){
+  const end=new Date();end.setHours(23,59,59,999);end.setDate(end.getDate()-offset*N());
+  const start=new Date(end);start.setDate(start.getDate()-N()+1);start.setHours(0,0,0,0);
+  return {start,end};
+}
+function render(){
+  const {start,end}=periodRange();
+  const inR=records.filter(r=>r.ts>=start.getTime()&&r.ts<=end.getTime());
+  $('range').textContent=`${md(start)} – ${md(end)}`;$('nxt').disabled=offset===0;
+  const has=inR.length,S=inR.map(r=>r.sys),D=inR.map(r=>r.dia);
+  $('sMin').textContent=has?Math.min(...S):'--';$('sMax').textContent=has?Math.max(...S):'--';
+  $('dMin').textContent=has?Math.min(...D):'--';$('dMax').textContent=has?Math.max(...D):'--';
+  drawChart(inR,start);
+  renderHero();
+  const L=$('list');
+  if(!records.length){L.innerHTML='';return;}
+  const all=records.slice().reverse(),shown=all.slice(0,listLimit);
+  L.innerHTML=`<div class="sec">歷史記錄<span>共 ${all.length} 筆</span></div>`+shown.map(r=>{const lv=LEVELS[level(r.sys,r.dia)];
+    return `<div class="rec" style="--c:${lv.c}"><div class="r-l"><div class="r-val">${r.sys}<i>/</i>${r.dia}</div>
+    <div class="r-meta"><span class="pill"><span class="dot"></span>${lv.n}</span>${r.pulse?`<span class="pulse">${ic('heart-pulse',16)}${r.pulse} BPM</span>`:''}</div>
+    <div class="r-t">${fmt(r.ts)}</div>${r.note?`<div class="note">${esc(r.note)}</div>`:''}</div>
+    <button class="icon-btn sm del" aria-label="刪除" onclick="del('${r.id}')">${ic('trash-2',18)}</button></div>`}).join('')
+    +(all.length>listLimit?`<button class="more" onclick="listLimit+=30;render()">${ic('chevron-down',18)}顯示更多（還有 ${all.length-listLimit} 筆）</button>`:'');
+}
+function renderHero(){
+  const H=$('hero'),r=records[records.length-1];
+  if(!r){H.style.background='';H.innerHTML=`<div class="empty">${ic('heart-pulse',44)}<b>還沒有記錄</b><span>點下方「新增記錄」開始追蹤血壓</span></div>`;return;}
+  const lv=LEVELS[level(r.sys,r.dia)];
+  H.style.background=`linear-gradient(135deg,${lv.c}30,transparent 65%),var(--surface)`;
+  H.innerHTML=`<div class="h-top"><span>最近一次</span><span>${fmt(r.ts)}</span></div>
+  <div class="h-main"><div class="h-num">${r.sys}<i>/</i>${r.dia}<small>mmHg</small></div>
+  <div class="h-side"><span class="pill" style="--c:${lv.c}"><span class="dot"></span>${lv.n}</span>${r.pulse?`<span class="pulse">${ic('heart-pulse',18)}${r.pulse} BPM</span>`:''}</div></div>`;
+}
+function drawChart(inR,start){
+  const days={};
+  inR.forEach(r=>{const k=dayKey(new Date(r.ts));const o=days[k]=days[k]||{hi:0,lo:999};o.hi=Math.max(o.hi,r.sys);o.lo=Math.min(o.lo,r.dia);});
+  const n=N(),X0=50,W=470,top=20,bot=270,min=40,max=180,y=v=>bot-(Math.min(max,Math.max(min,v))-min)/(max-min)*(bot-top);
+  let h='';
+  [40,68,96,124,152,180].forEach(v=>{h+=`<line x1="${X0}" x2="520" y1="${y(v)}" y2="${y(v)}" stroke="rgba(255,255,255,.09)" stroke-dasharray="3 5"/><text x="0" y="${y(v)+5}" fill="#98a1c2" font-size="14" font-weight="600">${v}</text>`;});
+  const step=W/n,bw=Math.min(26,step*.6);let lastI=-1;
+  const cells=[];for(let i=0;i<n;i++){const d=new Date(start);d.setDate(d.getDate()+i);const o=days[dayKey(d)];cells.push({d,o});if(o)lastI=i;}
+  cells.forEach(({d,o},i)=>{const cx=X0+step*(i+.5);
+    if(o){const lv=LEVELS[level(o.hi,o.lo)];h+=`<rect x="${cx-bw/2}" y="${y(o.hi)}" width="${bw}" height="${Math.max(bw,y(o.lo)-y(o.hi))}" rx="${bw/2}" fill="${lv.c}"/>`;}
+    if(n===7||i%5===0||i===n-1)h+=`<text x="${cx}" y="${bot+45}" text-anchor="middle" fill="#98a1c2" font-size="${n===7?14:12}" font-weight="600">${md(d).replace('/','-')}</text>`;
+    if(i===lastI){const cx2=Math.min(cx,X0+W-14);h+=`<text x="${cx2}" y="${y(o.hi)-8}" text-anchor="middle" fill="#fff" font-size="16" font-weight="700">${o.hi}</text><text x="${cx2}" y="${y(o.lo)+22}" text-anchor="middle" fill="#fff" font-size="16" font-weight="700">${o.lo}</text>`;}});
+  if(!inR.length)h+=`<text x="285" y="150" text-anchor="middle" fill="#98a1c2" font-size="17">這段期間沒有記錄</text>`;
+  $('chart').innerHTML=h;
+}
+function checkBanner(){
+  const b=$('banner');b.style.display='none';
+  if(!settings||!settings.enabled||!settings.inapp)return;
+  const now=new Date();let T=null;
+  settings.times.forEach(t=>{const [h,m]=t.split(':').map(Number);const d=new Date();d.setHours(h,m,0,0);
+    if(d<=now&&now-d<6*3600e3&&(!T||d>T))T=d;});
+  if(T&&!records.some(r=>r.ts>=T.getTime()-30*60e3))b.style.display='flex';
+}
+
+/* ---- 滾輪 ---- */
+const IH=56;
+function buildWheel(el,min,max,val,cb){
+  el.innerHTML='';for(let v=min;v<=max;v++){const d=document.createElement('div');d.textContent=v;el.appendChild(d);}
+  const get=()=>Math.min(max,Math.max(min,min+Math.round(el.scrollTop/IH)));
+  const mark=()=>{const v=get();[...el.children].forEach((c,i)=>c.classList.toggle('on',i===v-min));};
+  el._get=get;el.onscroll=()=>{mark();cb();};
+  el.scrollTop=(val-min)*IH;mark();
+}
+function initNew(){
+  const last=records[records.length-1]||{};
+  const v={sys:last.sys||120,dia:last.dia||80,pulse:last.pulse||70};
+  buildWheel($('wSys'),60,260,v.sys,upd);buildWheel($('wDia'),30,200,v.dia,upd);buildWheel($('wPul'),30,220,v.pulse,upd);
+  const n=new Date();$('dt').value=`${n.getFullYear()}-${p2(n.getMonth()+1)}-${p2(n.getDate())}T${p2(n.getHours())}:${p2(n.getMinutes())}`;
+  $('note').value='';
+  $('stBar').innerHTML=LEVELS.map(l=>`<i style="background:${l.c}"></i>`).join('');
+  requestAnimationFrame(()=>{$('wSys').scrollTop=(v.sys-60)*IH;$('wDia').scrollTop=(v.dia-30)*IH;$('wPul').scrollTop=(v.pulse-30)*IH;upd();});
+}
+let hlStyle;
+function upd(){
+  const s=$('wSys')._get(),d=$('wDia')._get(),lv=level(s,d),L=LEVELS[lv];
+  $('stName').textContent=L.n;$('stDot').style.background=L.c;
+  $('stDesc').textContent=L.d+((s>180||d>120)?'；數值很高，請盡速就醫':'');
+  if(!hlStyle){hlStyle=document.createElement('style');document.head.appendChild(hlStyle);}
+  hlStyle.textContent=`.wheels::before{background:${L.c}!important}`;
+  [...$('stBar').children].forEach((e,i)=>e.classList.toggle('cur',i===lv));
+}
+async function save(){
+  const rec={ts:new Date($('dt').value).getTime()||Date.now(),sys:$('wSys')._get(),dia:$('wDia')._get(),pulse:$('wPul')._get(),note:$('note').value.trim()};
+  if(rec.dia>=rec.sys&&!confirm('舒張壓不低於收縮壓，確定要保存嗎？'))return;
+  try{records=await api('addRecord',rec);go('home');}catch(e){toast('保存失敗：'+(e.message||e));}
+}
+async function del(id){if(!confirm('刪除這筆記錄？'))return;try{records=await api('deleteRecord',id);render();}catch(e){toast('刪除失敗');}}
+
+/* ---- 設定 / 提醒 ---- */
+function fillSettings(){
+  const s=settings;$('rmOn').checked=s.enabled;$('rmMail').checked=s.email;$('rmApp').checked=s.inapp;
+  $('rmTimes').innerHTML='';s.times.forEach(addTime);$('prev').innerHTML='';fillCfg();
+}
+function addTime(t){
+  if(typeof t!=='string')t='12:00';
+  const d=document.createElement('div');d.className='tm';
+  d.innerHTML=`<input type="time" value="${p2(t.split(':')[0])}:${t.split(':')[1]}"><button class="icon-btn sm" aria-label="刪除時段" onclick="this.parentNode.remove()">${ic('x',18)}</button>`;
+  $('rmTimes').appendChild(d);
+}
+const readTimes=()=>[...document.querySelectorAll('#rmTimes input')].map(i=>i.value).filter(Boolean);
+function saveSettings(){
+  const s={enabled:$('rmOn').checked,times:readTimes(),email:$('rmMail').checked,inapp:$('rmApp').checked,tz:TZ,appUrl:location.href.split(/[?#]/)[0]};
+  if(s.enabled&&!s.times.length){toast('請至少設定一個提醒時段');return;}
+  api('saveSettings',s).then(r=>{settings=r||s;toast('已保存');go('home');}).catch(e=>toast('保存失敗：'+(e.message||e)));
+}
+function download(name,mime,content){
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type:mime}));a.download=name;
+  document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500);
+}
+function downloadIcs(){
+  const t=readTimes();if(!t.length){toast('請先新增提醒時段');return;}
+  const now=new Date(),ymd=`${now.getFullYear()}${p2(now.getMonth()+1)}${p2(now.getDate())}`,stamp=new Date().toISOString().replace(/[-:]/g,'').split('.')[0]+'Z';
+  let s='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//BP Tracker//TW\r\nCALSCALE:GREGORIAN\r\n';
+  t.forEach((tm,i)=>{const [h,m]=tm.split(':').map(Number),e=new Date(2000,0,1,h,m+10);
+    s+=`BEGIN:VEVENT\r\nUID:bp-${i}-${Date.now()}@bp-tracker\r\nDTSTAMP:${stamp}\r\nDTSTART:${ymd}T${p2(h)}${p2(m)}00\r\nDTEND:${ymd}T${p2(e.getHours())}${p2(e.getMinutes())}00\r\nRRULE:FREQ=DAILY\r\nSUMMARY:量血壓\r\nBEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:該量血壓了\r\nTRIGGER:PT0M\r\nEND:VALARM\r\nEND:VEVENT\r\n`;});
+  download('血壓提醒.ics','text/calendar',s+'END:VCALENDAR\r\n');
+}
+
+/* ---- 匯出 CSV ---- */
+function exportCsv(){
+  if(!records.length){toast('目前沒有記錄');return;}
+  const q=v=>`"${String(v).replace(/"/g,'""')}"`;
+  // 格式與匯入檔一致：日期 yyyy.MM.dd、新到舊
+  const rows=['日期,時間,收縮壓,舒張壓,脈搏,我的備註,類型'];
+  records.slice().reverse().forEach(r=>{const d=new Date(r.ts);
+    rows.push([`${d.getFullYear()}.${p2(d.getMonth()+1)}.${p2(d.getDate())}`,`${p2(d.getHours())}:${p2(d.getMinutes())}`,r.sys,r.dia,r.pulse||'',q(r.note),LEVELS[level(r.sys,r.dia)].n].join(','));});
+  const n=new Date();
+  download(`血壓記錄_${n.getFullYear()}${p2(n.getMonth()+1)}${p2(n.getDate())}.csv`,'text/csv;charset=utf-8','\ufeff'+rows.join('\r\n'));
+  toast(`已匯出 ${records.length} 筆`);
+}
+
+/* ---- 匯入 ---- */
+function parseCSV(t){
+  const out=[];let row=[],c='',q=false;
+  for(let i=0;i<t.length;i++){const ch=t[i];
+    if(q){if(ch==='"'){if(t[i+1]==='"'){c+='"';i++;}else q=false;}else c+=ch;}
+    else if(ch==='"')q=true;
+    else if(ch===','||ch==='\t'){row.push(c);c='';}
+    else if(ch==='\n'||ch==='\r'){if(ch==='\r'&&t[i+1]==='\n')i++;row.push(c);out.push(row);row=[];c='';}
+    else c+=ch;}
+  if(c||row.length){row.push(c);out.push(row);}
+  return out;
+}
+function decode(buf){
+  try{return new TextDecoder('utf-8',{fatal:true}).decode(buf).replace(/^\ufeff/,'');}
+  catch(e){try{return new TextDecoder('big5').decode(buf);}catch(e2){return new TextDecoder('utf-8').decode(buf);}}
+}
+function handleFile(e){
+  const f=e.target.files[0];if(!f)return;
+  const rd=new FileReader();
+  rd.onload=()=>{try{let rows;
+    if(/\.(csv|txt)$/i.test(f.name))rows=parseCSV(decode(rd.result));
+    else{if(typeof XLSX==='undefined'){toast('無法載入 Excel 解析器，請另存成 CSV 再匯入');return;}
+      const wb=XLSX.read(rd.result,{type:'array',cellDates:true}),ws=wb.Sheets[wb.SheetNames[0]];
+      rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,dateNF:'yyyy-mm-dd hh:mm',defval:''});}
+    prepareImport(rows);}catch(err){toast('讀取失敗：'+(err.message||err));}
+    e.target.value='';};
+  rd.readAsArrayBuffer(f);
+}
+function readGs(){
+  const u=$('gsUrl').value.trim();if(!u){toast('請貼上試算表網址或 ID');return;}
+  toast('讀取中…');
+  api('readSheetRows',u,$('gsTab').value.trim()).then(prepareImport).catch(e=>toast('讀取失敗：'+(e.message||e)));
+}
+function detect(row){
+  const m={};
+  row.forEach((c,i)=>{c=String(c);
+    if(m.sys==null&&/收縮|高壓|systolic|\bsys\b|sbp/i.test(c))m.sys=i;
+    else if(m.dia==null&&/舒張|低壓|diastolic|\bdia\b|dbp/i.test(c))m.dia=i;
+    else if(m.pulse==null&&/脈搏|心率|心跳|pulse|heart|\bhr\b|bpm/i.test(c))m.pulse=i;
+    else if(m.note==null&&/備註|備忘|note|memo|remark|comment/i.test(c))m.note=i;
+    else if(m.date==null&&/日期|date|day/i.test(c))m.date=i;
+    else if(m.time==null&&/時間|time/i.test(c))m.time=i;
+    else if(m.bp==null&&/血壓|\bbp\b|blood/i.test(c))m.bp=i;});
+  return m;
+}
+function num(x){const v=parseFloat(String(x==null?'':x).replace(/[^\d.]/g,''));return isFinite(v)?Math.round(v):NaN;}
+function parseDT(ds,tm){
+  ds=String(ds||'').trim();tm=String(tm||'').trim();
+  let y,mo,d,h=0,mi=0,rest='',m;
+  if(/^\d{5}(\.\d+)?$/.test(ds)){const ms=Math.round((parseFloat(ds)-25569)*864e5),u=new Date(ms);
+    y=u.getUTCFullYear();mo=u.getUTCMonth()+1;d=u.getUTCDate();h=u.getUTCHours();mi=u.getUTCMinutes();}
+  else{
+    if(m=ds.match(/(\d{4})\s*[-\/.年]\s*(\d{1,2})\s*[-\/.月]\s*(\d{1,2})/)){y=+m[1];mo=+m[2];d=+m[3];}
+    else if(m=ds.match(/(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/)){const a=+m[1],b=+m[2];if(a>12){d=a;mo=b;}else{mo=a;d=b;}y=+m[3];}
+    else return null;
+    rest=ds.slice(m.index+m[0].length);
+  }
+  const src=tm||rest;
+  if(/^0?\.\d+$/.test(tm)){const mins=Math.round(parseFloat(tm)*1440);h=Math.floor(mins/60)%24;mi=mins%60;}
+  else{const t=src.match(/(上午|下午|AM|PM)?\s*(\d{1,2}):(\d{2})(?::\d{2})?\s*(上午|下午|AM|PM)?/i);
+    if(t){h=+t[2];mi=+t[3];const ap=t[1]||t[4];if(ap&&/下午|pm/i.test(ap)&&h<12)h+=12;if(ap&&/上午|am/i.test(ap)&&h===12)h=0;}}
+  const dt=new Date(y,mo-1,d,h,mi);
+  return isNaN(dt)||dt.getMonth()!==mo-1?null:dt.getTime();
+}
+function mapRows(rows){
+  rows=rows.map(r=>r.map(c=>c==null?'':String(c).trim())).filter(r=>r.some(c=>c));
+  let map=null,hi=-1;
+  for(let i=0;i<Math.min(10,rows.length);i++){const m=detect(rows[i]);if((m.sys!=null&&m.dia!=null||m.bp!=null)&&(m.date!=null)){map=m;hi=i;break;}}
+  if(!map){map={date:0,sys:1,dia:2,pulse:3,note:4};}
+  const list=[];let bad=0;
+  rows.slice(hi+1).forEach(r=>{
+    const ts=parseDT(r[map.date],map.time!=null?r[map.time]:'');
+    let s,d;
+    if(map.sys!=null&&map.dia!=null){s=num(r[map.sys]);d=num(r[map.dia]);}
+    else if(map.bp!=null){const m=String(r[map.bp]).match(/(\d{2,3})\s*[\/／]\s*(\d{2,3})/);if(m){s=+m[1];d=+m[2];}}
+    const p=map.pulse!=null?num(r[map.pulse]):NaN;
+    if(!ts||!(s>=50&&s<=300)||!(d>=30&&d<=200)){bad++;return;}
+    list.push({ts,sys:s,dia:d,pulse:(p>=30&&p<=250)?p:0,note:map.note!=null?r[map.note]:''});});
+  return {list,bad,found:hi>=0};
+}
+function prepareImport(rows){
+  const {list,bad,found}=mapRows(rows);imp=list;
+  const P=$('prev');
+  if(!list.length){P.innerHTML=`沒有讀到有效的記錄。請確認有「日期」「收縮壓」「舒張壓」欄位。${bad?`（${bad} 列格式不符）`:''}`;return;}
+  list.sort((a,b)=>a.ts-b.ts);
+  const sample=list.slice(0,5).map(r=>`<tr><td>${fmt(r.ts)}</td><td>${r.sys}/${r.dia}</td><td>${r.pulse||'-'}</td></tr>`).join('');
+  P.innerHTML=`讀到 <b>${list.length}</b> 筆有效資料${bad?`，${bad} 列略過（格式不符）`:''}${found?'':'（未找到標題列，依「日期、收縮壓、舒張壓、脈搏、備註」順序讀取）'}。<table>${sample}</table>${list.length>5?'<div style="color:var(--sub)">…</div>':''}<button class="save" style="width:100%;margin-top:12px" onclick="doImport()">匯入 ${list.length} 筆</button>`;
+}
+async function doImport(){
+  if(!imp||!imp.length)return;
+  try{const r=await api('importRecords',imp);records=r.records;imp=null;$('prev').innerHTML='';
+    toast(`已匯入 ${r.added} 筆${r.skipped?`，重複略過 ${r.skipped} 筆`:''}`);}
+  catch(e){toast('匯入失敗：'+(e.message||e));}
+}
+
+/* ---- 雲端連線設定 ---- */
+function fillCfg(){
+  const c=CFG(),st=matchMedia('(display-mode: standalone)').matches||navigator.standalone;
+  $('cfgUrl').value=c.url||'';$('cfgTok').value=c.token||'';
+  $('cfgNote').textContent=c.url?'已連線雲端。記錄會先存在手機，連上網路後自動同步。':'目前只存在這支手機（清除瀏覽器資料會遺失）。填入 GAS 網址與密碼，即可雲端備份與同步。';
+  $('cfgOff').style.display=c.url?'block':'none';
+  $('btnInstall').style.display=(deferredInstall&&!st)?'block':'none';
+  $('instNote').textContent=st?'已在主畫面模式執行。':(/iphone|ipad|ipod/i.test(navigator.userAgent)?'iPhone：用 Safari 開啟 → 分享 → 加入主畫面。':'Android：Chrome 選單 → 安裝應用程式（或按上方按鈕）。');
+}
+async function saveCfg(){
+  const url=$('cfgUrl').value.trim(),token=$('cfgTok').value.trim();
+  if(!/^https:\/\/script\.google\.com\/.+\/exec/.test(url)){toast('網址應該是 https://script.google.com/…/exec');return;}
+  if(!token){toast('請輸入 API 密碼');return;}
+  const old=CFG();SV('bpCfg',{url,token});
+  try{await remote('ping');}catch(e){SV('bpCfg',old);toast('連線失敗：'+(e.message||e));return;}
+  if(!old.url){ // 首次連線：把這支手機上的記錄送上雲端（重複的會被略過）
+    SV('bpQ',[...LS('bpQ',[]),...LS('bp',[]).map(rec=>({op:'add',rec,k:uid()}))]);}
+  toast('已連線，同步中…');
+  await sync();fillCfg();setStatus();
+  if(syncErr)toast('同步失敗：'+syncErr);else toast('已連線並同步');
+}
+function clearCfg(){
+  if(!confirm('改回僅本機模式？手機上的記錄會保留，之後不再同步。'))return;
+  localStorage.removeItem('bpCfg');SV('bpQ',[]);fillCfg();setStatus();toast('已改為僅本機模式');
+}
+
+/* ---- PWA：安裝與離線 ---- */
+let deferredInstall=null;
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstall=e;const b=$('btnInstall');if(b)b.style.display='block';});
+window.addEventListener('appinstalled',()=>{deferredInstall=null;toast('已安裝到主畫面');});
+function doInstall(){
+  if(!deferredInstall)return;
+  deferredInstall.prompt();
+  deferredInstall.userChoice.finally(()=>{deferredInstall=null;$('btnInstall').style.display='none';});
+}
+if('serviceWorker' in navigator&&location.protocol!=='file:')navigator.serviceWorker.register('sw.js').catch(()=>{});
+window.addEventListener('online',()=>{setStatus();sync();});
+window.addEventListener('offline',setStatus);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)sync();});
+$('sync').onclick=()=>{if(CFG().url)sync();else go('settings');};
+
+/* ---- 啟動 ---- */
+hydrateIcons();
+Promise.all([api('getRecords').catch(()=>[]),api('getSettings').catch(()=>null)]).then(([r,s])=>{
+  records=r||[];settings=s||DEF_SET();render();checkBanner();setStatus();
+  // 主畫面圖示長按的「新增記錄」捷徑
+  if(new URLSearchParams(location.search).get('action')==='new'){go('new');history.replaceState(null,'',location.pathname);}});
+</script>
+</body>
+</html>
