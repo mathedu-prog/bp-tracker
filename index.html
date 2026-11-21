@@ -210,7 +210,9 @@ input::placeholder,textarea::placeholder{color:#6e7799}
   </div>
   <div class="card">
     <h2><i data-ic="database" data-s="20"></i>資料</h2>
-    <button class="btn" style="margin-top:0" onclick="exportCsv()"><i data-ic="upload" data-s="20"></i>匯出 CSV</button>
+    <button class="btn" style="margin-top:0" onclick="exportCsv()"><i data-ic="upload" data-s="20"></i>匯出 CSV（分享／存雲端）</button>
+    <button class="btn" onclick="exportCsv('download')"><i data-ic="download" data-s="20"></i>直接下載到手機</button>
+    <small>「匯出」會開啟手機的分享選單，可選存到 Google 雲端硬碟、LINE 或寄信；手機不支援分享時，會自動改為直接下載。</small>
     <hr>
     <div class="sub-t">匯入血壓歷史記錄</div>
     <button class="btn" onclick="$('file').click()"><i data-ic="download" data-s="20"></i>選擇檔案（xlsx / xls / csv）</button>
@@ -560,16 +562,26 @@ function downloadIcs(){
 }
 
 /* ---- 匯出 CSV ---- */
-function exportCsv(){
+async function exportCsv(mode){
   if(!records.length){toast('目前沒有記錄');return;}
   const q=v=>`"${String(v).replace(/"/g,'""')}"`;
   // 格式與匯入檔一致：日期 yyyy.MM.dd、新到舊
   const rows=['日期,時間,收縮壓,舒張壓,脈搏,我的備註,類型'];
   records.slice().reverse().forEach(r=>{const d=new Date(r.ts);
     rows.push([`${d.getFullYear()}.${p2(d.getMonth()+1)}.${p2(d.getDate())}`,`${p2(d.getHours())}:${p2(d.getMinutes())}`,r.sys,r.dia,r.pulse||'',q(r.note),LEVELS[level(r.sys,r.dia)].n].join(','));});
-  const n=new Date();
-  download(`血壓記錄_${n.getFullYear()}${p2(n.getMonth()+1)}${p2(n.getDate())}.csv`,'text/csv;charset=utf-8','\ufeff'+rows.join('\r\n'));
-  toast(`已匯出 ${records.length} 筆`);
+  const n=new Date(),name=`血壓記錄_${n.getFullYear()}${p2(n.getMonth()+1)}${p2(n.getDate())}.csv`,text='\ufeff'+rows.join('\r\n');
+  // 先試手機分享選單（可選 Google 雲端硬碟、LINE、Gmail…）；不支援或失敗就直接下載
+  if(mode!=='download'&&navigator.canShare&&navigator.share&&typeof File!=='undefined'){
+    try{
+      const file=new File([text],name,{type:'text/csv'});
+      if(navigator.canShare({files:[file]})){
+        await navigator.share({files:[file],title:'血壓記錄'});
+        toast(`已匯出 ${records.length} 筆`);return;
+      }
+    }catch(e){if(e&&e.name==='AbortError')return;}
+  }
+  download(name,'text/csv;charset=utf-8',text);
+  toast(`已下載 ${records.length} 筆`);
 }
 
 /* ---- 匯入 ---- */
