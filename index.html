@@ -444,7 +444,6 @@ function drawChart(){
   const bw=Math.max(4,Math.min(26,colW*.6));
   for(let i=0;i<total;i++){
     const d=new Date(startD.getFullYear(),startD.getMonth(),startD.getDate()+i),cx=colW*(i+.5),o=days[i];
-    if(i===sel)h+=`<rect x="${colW*i+1}" y="${top-6}" width="${colW-2}" height="${bot-top+12}" rx="8" fill="rgba(255,255,255,.07)"/>`;
     if(o){const li=level(o.sMax,o.dMin),y1=y(o.sMax);
       h+=`<rect x="${cx-bw/2}" y="${y1}" width="${bw}" height="${Math.max(bw,y(o.dMin)-y1)}" rx="${bw/2}" fill="url(#g${li})"/>`;}
     const dt=d.getDate(),lab=N===7||dt===1||dt%5===0&&dt<=25;
