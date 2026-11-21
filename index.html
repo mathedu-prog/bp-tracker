@@ -78,8 +78,16 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px soli
 .tile h3{margin:0 0 8px;font-size:14px;font-weight:600;color:var(--sub)}
 .tile .r{display:flex;gap:18px}.tile small{display:block;color:var(--sub);font-size:12px;margin-bottom:2px}
 .tile b{font-size:28px;font-weight:800;letter-spacing:-.5px}
-.chart-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:12px 8px 4px;margin-top:12px}
-#chart{display:block;width:100%;height:auto}
+.chart-card{display:flex;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:12px 12px 6px 10px;margin-top:12px}
+#yax{flex:none;display:block}
+#cscroll{flex:1;min-width:0;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;scrollbar-width:none;cursor:grab}
+#cscroll::-webkit-scrollbar{display:none}
+#chart{display:block}
+.chart-hint{text-align:center;color:var(--sub);font-size:12px;margin-top:8px}
+.to-today{flex:none;white-space:nowrap;height:32px;padding:0 12px;margin-left:6px;border-radius:16px;background:var(--surface2);color:#fff;font-size:13px;font-weight:600}
+.to-today:active{filter:brightness(1.2)}
+.nav .to-today{width:auto;height:32px;padding:0 14px;border-radius:16px}
+.nav{min-width:0}.nav #range{min-width:0;flex:0 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px;font-weight:600;color:var(--sub);font-variant-numeric:tabular-nums}
 
 /* list */
 .sec{margin:26px 4px 4px;font-size:18px;font-weight:700;display:flex;justify-content:space-between;align-items:baseline}
@@ -158,13 +166,14 @@ input::placeholder,textarea::placeholder{color:#6e7799}
   <div class="hero" id="hero"></div>
   <div class="ctl">
     <div class="seg"><button id="vWeek" class="on" onclick="setView('week')">週</button><button id="vMonth" onclick="setView('month')">月</button></div>
-    <div class="nav"><button onclick="shift(1)" aria-label="較早"><i data-ic="chevron-left" data-s="20"></i></button><span id="range"></span><button id="nxt" onclick="shift(-1)" aria-label="較近"><i data-ic="chevron-right" data-s="20"></i></button></div>
+    <div class="nav"><span id="range"></span><button class="to-today" id="toToday" style="display:none" onclick="toToday()">今天</button></div>
   </div>
   <div class="stats">
     <div class="tile"><h3>收縮壓</h3><div class="r"><span><small>最小</small><b id="sMin">--</b></span><span><small>最大</small><b id="sMax">--</b></span></div></div>
     <div class="tile"><h3>舒張壓</h3><div class="r"><span><small>最小</small><b id="dMin">--</b></span><span><small>最大</small><b id="dMax">--</b></span></div></div>
   </div>
-  <div class="chart-card"><svg id="chart" viewBox="0 0 520 330" role="img" aria-label="血壓趨勢圖"></svg></div>
+  <div class="chart-card"><svg id="yax" width="32" height="236" aria-hidden="true"></svg><div id="cscroll"><svg id="chart" height="236" role="img" aria-label="血壓趨勢圖，可左右滑動查看過往記錄"></svg></div></div>
+  <div class="chart-hint">左右滑動可查看過往記錄，點長條看當天數值</div>
   <div id="list"></div>
   <button class="fab" onclick="go('new')"><i data-ic="plus" data-s="22"></i>新增記錄</button>
 </section>
@@ -275,7 +284,7 @@ const IC={
 function ic(n,s){s=s||22;return `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[n]||''}</svg>`;}
 function hydrateIcons(){document.querySelectorAll('i[data-ic]').forEach(e=>{e.outerHTML=ic(e.dataset.ic,+e.dataset.s||22);});}
 
-let records=[],settings=null,view='week',offset=0,listLimit=30,imp=null;
+let records=[],settings=null,view='week',listLimit=30,imp=null;
 const TZ=(Intl.DateTimeFormat().resolvedOptions().timeZone)||'Asia/Taipei';
 
 function toast(m){const t=$('toast');t.textContent=m;t.style.display='block';clearTimeout(toast._t);toast._t=setTimeout(()=>t.style.display='none',3200);}
@@ -379,22 +388,14 @@ const md=d=>`${p2(d.getMonth()+1)}/${p2(d.getDate())}`;
 const dayKey=d=>`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 
 /* ---- 主畫面 ---- */
-const N=()=>view==='week'?7:30;
-function setView(v){view=v;offset=0;$('vWeek').classList.toggle('on',v==='week');$('vMonth').classList.toggle('on',v==='month');render();}
-function shift(d){offset=Math.max(0,offset+d);render();}
-function periodRange(){
-  const end=new Date();end.setHours(23,59,59,999);end.setDate(end.getDate()-offset*N());
-  const start=new Date(end);start.setDate(start.getDate()-N()+1);start.setHours(0,0,0,0);
-  return {start,end};
-}
+const cv={colW:44,startD:null,total:0,days:[],rightDays:0,selMs:null,raf:0,drawn:false};
+const DAY=864e5;
+const mix=(hex,t=.5)=>{const n=parseInt(hex.slice(1),16),f=v=>Math.round(v+(255-v)*t);return '#'+[n>>16&255,n>>8&255,n&255].map(v=>f(v).toString(16).padStart(2,'0')).join('');};
+const dMid=d=>new Date(d.getFullYear(),d.getMonth(),d.getDate());
+function setView(v){view=v;$('vWeek').classList.toggle('on',v==='week');$('vMonth').classList.toggle('on',v==='month');drawChart();}
+function toToday(){cv.rightDays=0;const sc=$('cscroll');sc.scrollTo({left:sc.scrollWidth,behavior:'smooth'});}
 function render(){
-  const {start,end}=periodRange();
-  const inR=records.filter(r=>r.ts>=start.getTime()&&r.ts<=end.getTime());
-  $('range').textContent=`${md(start)} – ${md(end)}`;$('nxt').disabled=offset===0;
-  const has=inR.length,S=inR.map(r=>r.sys),D=inR.map(r=>r.dia);
-  $('sMin').textContent=has?Math.min(...S):'--';$('sMax').textContent=has?Math.max(...S):'--';
-  $('dMin').textContent=has?Math.min(...D):'--';$('dMax').textContent=has?Math.max(...D):'--';
-  drawChart(inR,start);
+  drawChart();
   renderHero();
   const L=$('list');
   if(!records.length){L.innerHTML='';return;}
@@ -415,21 +416,77 @@ function renderHero(){
   <div class="h-main"><div class="h-num">${r.sys}<i>/</i>${r.dia}<small>mmHg</small></div>
   <div class="h-side"><span class="pill" style="--c:${lv.c}"><span class="dot"></span>${lv.n}</span>${r.pulse?`<span class="pulse">${ic('heart-pulse',18)}${r.pulse} BPM</span>`:''}</div></div>`;
 }
-function drawChart(inR,start){
-  const days={};
-  inR.forEach(r=>{const k=dayKey(new Date(r.ts));const o=days[k]=days[k]||{hi:0,lo:999};o.hi=Math.max(o.hi,r.sys);o.lo=Math.min(o.lo,r.dia);});
-  const n=N(),X0=50,W=470,top=20,bot=270,min=40,max=180,y=v=>bot-(Math.min(max,Math.max(min,v))-min)/(max-min)*(bot-top);
-  let h='';
-  [40,68,96,124,152,180].forEach(v=>{h+=`<line x1="${X0}" x2="520" y1="${y(v)}" y2="${y(v)}" stroke="rgba(255,255,255,.09)" stroke-dasharray="3 5"/><text x="0" y="${y(v)+5}" fill="#98a1c2" font-size="14" font-weight="600">${v}</text>`;});
-  const step=W/n,bw=Math.min(26,step*.6);let lastI=-1;
-  const cells=[];for(let i=0;i<n;i++){const d=new Date(start);d.setDate(d.getDate()+i);const o=days[dayKey(d)];cells.push({d,o});if(o)lastI=i;}
-  cells.forEach(({d,o},i)=>{const cx=X0+step*(i+.5);
-    if(o){const lv=LEVELS[level(o.hi,o.lo)];h+=`<rect x="${cx-bw/2}" y="${y(o.hi)}" width="${bw}" height="${Math.max(bw,y(o.lo)-y(o.hi))}" rx="${bw/2}" fill="${lv.c}"/>`;}
-    if(n===7||i%5===0||i===n-1)h+=`<text x="${cx}" y="${bot+45}" text-anchor="middle" fill="#98a1c2" font-size="${n===7?14:12}" font-weight="600">${md(d).replace('/','-')}</text>`;
-    if(i===lastI){const cx2=Math.min(cx,X0+W-14);h+=`<text x="${cx2}" y="${y(o.hi)-8}" text-anchor="middle" fill="#fff" font-size="16" font-weight="700">${o.hi}</text><text x="${cx2}" y="${y(o.lo)+22}" text-anchor="middle" fill="#fff" font-size="16" font-weight="700">${o.lo}</text>`;}});
-  if(!inR.length)h+=`<text x="285" y="150" text-anchor="middle" fill="#98a1c2" font-size="17">這段期間沒有記錄</text>`;
-  $('chart').innerHTML=h;
+function buildDays(N){
+  const today=dMid(new Date());
+  const minStart=new Date(today.getFullYear(),today.getMonth(),today.getDate()-(N-1));
+  let startD=minStart;
+  if(records.length){const f=dMid(new Date(records[0].ts));if(f<startD)startD=f;}
+  const total=Math.round((today-startD)/DAY)+1,days=new Array(total).fill(null);
+  records.forEach(r=>{const k=Math.round((dMid(new Date(r.ts))-startD)/DAY);if(k<0||k>=total)return;
+    const o=days[k]=days[k]||{sMin:999,sMax:0,dMin:999,dMax:0};
+    o.sMin=Math.min(o.sMin,r.sys);o.sMax=Math.max(o.sMax,r.sys);o.dMin=Math.min(o.dMin,r.dia);o.dMax=Math.max(o.dMax,r.dia);});
+  return {startD,total,days};
 }
+function drawChart(){
+  const sc=$('cscroll'),N=view==='week'?7:30,vw=sc.clientWidth||300;
+  const {startD,total,days}=buildDays(N);
+  const colW=vw/N,W=Math.max(vw,Math.round(colW*total*100)/100),H=236,top=40,bot=200,min=40,max=180;
+  const y=v=>bot-(Math.min(max,Math.max(min,v))-min)/(max-min)*(bot-top);
+  cv.colW=colW;cv.startD=startD;cv.total=total;cv.days=days;
+  // 選取的日期：預設最近一天有記錄的
+  let sel=cv.selMs==null?-1:Math.round((cv.selMs-startD.getTime())/DAY);
+  if(sel<0||sel>=total||!days[sel]){sel=-1;for(let i=total-1;i>=0;i--)if(days[i]){sel=i;break;}}
+  cv.selMs=sel>=0?new Date(startD.getFullYear(),startD.getMonth(),startD.getDate()+sel).getTime():null;
+  let yh='',h='<defs>'+LEVELS.map((l,k)=>`<linearGradient id="g${k}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${l.c}"/><stop offset="1" stop-color="${mix(l.c)}"/></linearGradient>`).join('')+'</defs>';
+  [40,68,96,124,152,180].forEach(v=>{
+    yh+=`<text x="0" y="${y(v)+4}" fill="#98a1c2" font-size="12" font-weight="600">${v}</text>`;
+    h+=`<line x1="0" x2="${W}" y1="${y(v)}" y2="${y(v)}" stroke="rgba(255,255,255,.09)" stroke-dasharray="3 5"/>`;});
+  const bw=Math.max(4,Math.min(26,colW*.6));
+  for(let i=0;i<total;i++){
+    const d=new Date(startD.getFullYear(),startD.getMonth(),startD.getDate()+i),cx=colW*(i+.5),o=days[i];
+    if(i===sel)h+=`<rect x="${colW*i+1}" y="${top-6}" width="${colW-2}" height="${bot-top+12}" rx="8" fill="rgba(255,255,255,.07)"/>`;
+    if(o){const li=level(o.sMax,o.dMin),y1=y(o.sMax);
+      h+=`<rect x="${cx-bw/2}" y="${y1}" width="${bw}" height="${Math.max(bw,y(o.dMin)-y1)}" rx="${bw/2}" fill="url(#g${li})"/>`;}
+    const dt=d.getDate(),lab=N===7||dt===1||dt%5===0&&dt<=25;
+    if(lab){const first=dt===1;
+      h+=`<text x="${cx}" y="${bot+26}" text-anchor="middle" fill="${first?'#fff':'#98a1c2'}" font-size="${N===7?11.5:11}" font-weight="${first?700:600}">${md(d).replace('/','-')}</text>`;
+      if(first||i===0)h+=`<text x="${cx}" y="${bot+44}" text-anchor="middle" fill="#6f789a" font-size="11" font-weight="600">${d.getFullYear()}</text>`;}
+    if(i===sel&&o){const tx=Math.min(W-16,Math.max(16,cx));
+      h+=`<text x="${tx}" y="${y(o.sMax)-8}" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">${o.sMax}</text><text x="${tx}" y="${Math.max(y(o.dMin),y(o.sMax)+bw)+20}" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">${o.dMin}</text>`;
+      // 點選長條：黑色提示泡泡顯示分級
+      const nm=LEVELS[level(o.sMax,o.dMin)].n,bwid=nm.length*15+26,bx=Math.min(W-bwid-2,Math.max(2,cx-bwid/2)),by=Math.max(2,y(o.sMax)-8-15-6-30),px=Math.min(bx+bwid-14,Math.max(bx+14,cx));
+      h+=`<g><rect x="${bx}" y="${by}" width="${bwid}" height="30" rx="10" fill="#000"/><path d="M${px-6} ${by+30}L${px} ${by+36}L${px+6} ${by+30}Z" fill="#000"/><text x="${bx+bwid/2}" y="${by+20}" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">${nm}</text></g>`;}
+  }
+  if(!records.length)h+=`<text x="${vw/2}" y="${(top+bot)/2}" text-anchor="middle" fill="#98a1c2" font-size="16">還沒有記錄</text>`;
+  const keep=cv.drawn?cv.rightDays:0;
+  $('yax').innerHTML=yh;
+  const c=$('chart');c.setAttribute('width',W);c.setAttribute('viewBox',`0 0 ${W} ${H}`);c.innerHTML=h;
+  sc.scrollLeft=Math.max(0,W-vw-keep*colW);cv.drawn=true;
+  updateRange();
+}
+function updateRange(){
+  const sc=$('cscroll'),{colW,startD,total,days}=cv;if(!total)return;
+  const i0=Math.max(0,Math.floor(sc.scrollLeft/colW+.001)),i1=Math.min(total-1,Math.ceil((sc.scrollLeft+sc.clientWidth)/colW-.001)-1);
+  let sMin=999,sMax=0,dMin=999,dMax=0,has=false;
+  for(let i=i0;i<=i1;i++){const o=days[i];if(!o)continue;has=true;sMin=Math.min(sMin,o.sMin);sMax=Math.max(sMax,o.sMax);dMin=Math.min(dMin,o.dMin);dMax=Math.max(dMax,o.dMax);}
+  $('sMin').textContent=has?sMin:'--';$('sMax').textContent=has?sMax:'--';
+  $('dMin').textContent=has?dMin:'--';$('dMax').textContent=has?dMax:'--';
+  const cy=new Date().getFullYear(),dd=i=>new Date(startD.getFullYear(),startD.getMonth(),startD.getDate()+i),a0=dd(i0),a1=dd(i1),f=(d,show)=>(show?d.getFullYear()+'/':'')+md(d);
+  $('range').textContent=`${f(a0,a0.getFullYear()!==cy)} – ${f(a1,a1.getFullYear()!==cy&&a1.getFullYear()!==a0.getFullYear())}`;
+  cv.rightDays=Math.max(0,(sc.scrollWidth-sc.scrollLeft-sc.clientWidth)/colW);
+  $('toToday').style.display=cv.rightDays>0.6?'':'none';
+}
+$('cscroll').addEventListener('scroll',()=>{if(!cv.raf)cv.raf=requestAnimationFrame(()=>{cv.raf=0;updateRange();});},{passive:true});
+$('chart').addEventListener('click',e=>{
+  const r=$('chart').getBoundingClientRect(),i=Math.floor((e.clientX-r.left)/cv.colW);
+  if(i>=0&&i<cv.total&&cv.days[i]){cv.selMs=new Date(cv.startD.getFullYear(),cv.startD.getMonth(),cv.startD.getDate()+i).getTime();drawChart();}
+});
+// 電腦滑鼠：按住拖曳捲動
+(()=>{const sc=$('cscroll');let down=false,x0=0,l0=0,moved=false;
+  sc.addEventListener('pointerdown',e=>{if(e.pointerType!=='mouse')return;down=true;moved=false;x0=e.clientX;l0=sc.scrollLeft;});
+  window.addEventListener('pointermove',e=>{if(!down)return;const dx=e.clientX-x0;if(Math.abs(dx)>4)moved=true;sc.scrollLeft=l0-dx;});
+  window.addEventListener('pointerup',()=>{down=false;});
+  sc.addEventListener('click',e=>{if(moved){e.stopPropagation();e.preventDefault();moved=false;}},true);})();
 function checkBanner(){
   const b=$('banner');b.style.display='none';
   if(!settings||!settings.enabled||!settings.inapp)return;
