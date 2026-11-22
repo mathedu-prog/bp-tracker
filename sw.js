@@ -1,6 +1,6 @@
 // 血壓記錄 — Service Worker：App 本體快取，離線也能開啟
 // 更新 App 後請把 VERSION 加 1，使用者下次開啟就會換新版。
-const VERSION = 'bp-v7';
+const VERSION = 'bp-v8';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', e => {

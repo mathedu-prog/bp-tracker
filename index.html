@@ -119,10 +119,11 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px soli
 .labels div{flex:1;text-align:center;font-size:15px;font-weight:600;color:var(--sub);padding:14px 0 4px}
 .wheels{position:relative;height:280px;margin-top:4px}
 .wheels::before{content:"";position:absolute;left:0;right:0;top:112px;height:56px;border-radius:28px;background:#16b96e;opacity:.95;transition:background .25s}
-.wheel{flex:1;height:280px;overflow-y:scroll;scroll-snap-type:y mandatory;scrollbar-width:none;position:relative;padding:112px 0;-webkit-mask-image:linear-gradient(transparent,#000 28%,#000 72%,transparent);mask-image:linear-gradient(transparent,#000 28%,#000 72%,transparent)}
+.wheels::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:2;background:linear-gradient(var(--bg) 0,rgba(27,32,53,0) 32%,rgba(27,32,53,0) 68%,var(--bg) 100%)}
+.wheel{flex:1;height:280px;overflow-y:scroll;scroll-snap-type:y mandatory;overscroll-behavior:contain;touch-action:pan-y;scrollbar-width:none;position:relative;padding:112px 0;contain:layout paint;z-index:1}
 .wheel::-webkit-scrollbar{display:none}
-.wheel div{height:56px;line-height:56px;text-align:center;font-size:30px;font-weight:700;scroll-snap-align:center;color:#ffffff33}
-.wheel div.on{color:#fff;font-size:42px;font-weight:800}
+.wheel div{height:56px;line-height:56px;text-align:center;font-size:30px;font-weight:800;scroll-snap-align:center;color:#ffffff40;transition:transform .12s ease-out,color .12s}
+.wheel div.on{color:#fff;transform:scale(1.4)}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:20px;margin-top:16px}
 .card h2{margin:0 0 14px;font-size:18px;font-weight:700;display:flex;align-items:center;gap:10px}
 .card h2 .ic{color:var(--sub)}
@@ -454,15 +455,15 @@ function drawChart(){
       if(first||i===0)h+=`<text x="${cx}" y="${bot+44}" text-anchor="middle" fill="#6f789a" font-size="11" font-weight="600">${d.getFullYear()}</text>`;}
     if(i===sel&&o){const tx=Math.min(W-16,Math.max(16,cx));
       h+=`<text x="${tx}" y="${y(o.sMax)-8}" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">${o.sMax}</text><text x="${tx}" y="${Math.max(y(o.dMin),y(o.sMax)+bw)+20}" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">${o.dMin}</text>`;
-      // 點選長條：黑色提示泡泡顯示分級
-      const nm=LEVELS[level(o.sMax,o.dMin)].n,bwid=nm.length*15+26,bx=Math.min(W-bwid-2,Math.max(2,cx-bwid/2)),by=Math.max(2,y(o.sMax)-8-15-6-30),px=Math.min(bx+bwid-14,Math.max(bx+14,cx));
-      h+=`<g><rect x="${bx}" y="${by}" width="${bwid}" height="30" rx="10" fill="#000"/><path d="M${px-6} ${by+30}L${px} ${by+36}L${px+6} ${by+30}Z" fill="#000"/><text x="${bx+bwid/2}" y="${by+20}" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">${nm}</text></g>`;}
+      // 點選長條：黑色提示泡泡顯示分級（約 2.5 秒後自動消失）
+      if(cv.bubble){const nm=LEVELS[level(o.sMax,o.dMin)].n,bwid=nm.length*15+26,bx=Math.min(W-bwid-2,Math.max(2,cx-bwid/2)),by=Math.max(2,y(o.sMax)-8-15-6-30),px=Math.min(bx+bwid-14,Math.max(bx+14,cx));
+      h+=`<g><rect x="${bx}" y="${by}" width="${bwid}" height="30" rx="10" fill="#000"/><path d="M${px-6} ${by+30}L${px} ${by+36}L${px+6} ${by+30}Z" fill="#000"/><text x="${bx+bwid/2}" y="${by+20}" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">${nm}</text></g>`;}}
   }
   if(!records.length)h+=`<text x="${vw/2}" y="${(top+bot)/2}" text-anchor="middle" fill="#98a1c2" font-size="16">還沒有記錄</text>`;
   const keep=cv.drawn?cv.rightDays:0;
   $('yax').innerHTML=yh;
   const c=$('chart');c.setAttribute('width',W);c.setAttribute('viewBox',`0 0 ${W} ${H}`);c.innerHTML=h;
-  sc.scrollLeft=Math.max(0,W-vw-keep*colW);cv.drawn=true;
+  sc.scrollLeft=Math.max(0,W-vw-keep*colW);cv.drawn=true;cv.drawAt=performance.now();
   updateRange();
 }
 function updateRange(){
@@ -477,10 +478,15 @@ function updateRange(){
   cv.rightDays=Math.max(0,(sc.scrollWidth-sc.scrollLeft-sc.clientWidth)/colW);
   $('toToday').style.display=cv.rightDays>0.6?'':'none';
 }
-$('cscroll').addEventListener('scroll',()=>{if(!cv.raf)cv.raf=requestAnimationFrame(()=>{cv.raf=0;updateRange();});},{passive:true});
+$('cscroll').addEventListener('scroll',()=>{if(cv.bubble&&performance.now()-(cv.drawAt||0)>150)hideBubble();if(!cv.raf)cv.raf=requestAnimationFrame(()=>{cv.raf=0;updateRange();});},{passive:true});
+function hideBubble(){clearTimeout(cv.bt);if(cv.bubble||cv.selMs!=null){cv.bubble=false;cv.selMs=null;drawChart();}}
 $('chart').addEventListener('click',e=>{
   const r=$('chart').getBoundingClientRect(),i=Math.floor((e.clientX-r.left)/cv.colW);
-  if(i>=0&&i<cv.total&&cv.days[i]){cv.selMs=new Date(cv.startD.getFullYear(),cv.startD.getMonth(),cv.startD.getDate()+i).getTime();drawChart();}
+  if(!(i>=0&&i<cv.total&&cv.days[i])){hideBubble();return;}               // 點空白處：收起
+  const ms=new Date(cv.startD.getFullYear(),cv.startD.getMonth(),cv.startD.getDate()+i).getTime();
+  if(cv.bubble&&cv.selMs===ms){hideBubble();return;}                       // 再點同一根：收起
+  cv.selMs=ms;cv.bubble=true;drawChart();
+  clearTimeout(cv.bt);cv.bt=setTimeout(hideBubble,2500);
 });
 // 電腦滑鼠：按住拖曳捲動
 (()=>{const sc=$('cscroll');let down=false,x0=0,l0=0,moved=false;
@@ -499,27 +505,41 @@ function checkBanner(){
 
 /* ---- 滾輪 ---- */
 const IH=56;
+let wheelQuiet=0;
 function buildWheel(el,min,max,val,cb){
-  el.innerHTML='';for(let v=min;v<=max;v++){const d=document.createElement('div');d.textContent=v;el.appendChild(d);}
+  el.innerHTML='';const frag=document.createDocumentFragment();
+  for(let v=min;v<=max;v++){const d=document.createElement('div');d.textContent=v;frag.appendChild(d);}
+  el.appendChild(frag);
   const get=()=>Math.min(max,Math.max(min,min+Math.round(el.scrollTop/IH)));
-  const mark=()=>{const v=get();[...el.children].forEach((c,i)=>c.classList.toggle('on',i===v-min));};
-  el._get=get;el.onscroll=()=>{mark();cb();};
+  let cur=-1,ticking=false;wheelQuiet=performance.now();
+  const mark=()=>{const v=get();if(v===cur)return;
+    if(cur!==-1&&el.children[cur-min])el.children[cur-min].classList.remove('on');
+    el.children[v-min].classList.add('on');
+    const had=cur!==-1;cur=v;
+    if(!had)return;
+    if(performance.now()-wheelQuiet>350&&navigator.vibrate){try{navigator.vibrate(5);}catch(e){}} // 輕微「喀」一聲的觸覺
+    cb();};
+  el._get=get;
+  el.onscroll=()=>{if(ticking)return;ticking=true;requestAnimationFrame(()=>{ticking=false;mark();});};
   el.scrollTop=(val-min)*IH;mark();
 }
 function initNew(){
+  lastLv=-1;
   const last=records[records.length-1]||{};
   const v={sys:last.sys||120,dia:last.dia||80,pulse:last.pulse||70};
   buildWheel($('wSys'),60,260,v.sys,upd);buildWheel($('wDia'),30,200,v.dia,upd);buildWheel($('wPul'),30,220,v.pulse,upd);
   const n=new Date();$('dt').value=`${n.getFullYear()}-${p2(n.getMonth()+1)}-${p2(n.getDate())}T${p2(n.getHours())}:${p2(n.getMinutes())}`;
   $('note').value='';
   $('stBar').innerHTML=LEVELS.map(l=>`<i style="background:${l.c}"></i>`).join('');
-  requestAnimationFrame(()=>{$('wSys').scrollTop=(v.sys-60)*IH;$('wDia').scrollTop=(v.dia-30)*IH;$('wPul').scrollTop=(v.pulse-30)*IH;upd();});
+  requestAnimationFrame(()=>{wheelQuiet=performance.now();$('wSys').scrollTop=(v.sys-60)*IH;$('wDia').scrollTop=(v.dia-30)*IH;$('wPul').scrollTop=(v.pulse-30)*IH;upd();});
 }
-let hlStyle;
+let hlStyle,lastLv=-1,lastWarn=false;
 function upd(){
-  const s=$('wSys')._get(),d=$('wDia')._get(),lv=level(s,d),L=LEVELS[lv];
+  const s=$('wSys')._get(),d=$('wDia')._get(),lv=level(s,d),L=LEVELS[lv],warn=(s>180||d>120);
+  if(lv===lastLv&&warn===lastWarn)return;
+  lastLv=lv;lastWarn=warn;
   $('stName').textContent=L.n;$('stDot').style.background=L.c;
-  $('stDesc').textContent=L.d+((s>180||d>120)?'；數值很高，請盡速就醫':'');
+  $('stDesc').textContent=L.d+(warn?'；數值很高，請盡速就醫':'');
   if(!hlStyle){hlStyle=document.createElement('style');document.head.appendChild(hlStyle);}
   hlStyle.textContent=`.wheels::before{background:${L.c}!important}`;
   [...$('stBar').children].forEach((e,i)=>e.classList.toggle('cur',i===lv));
